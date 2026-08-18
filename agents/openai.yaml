@@ -1,0 +1,4 @@
+interface:
+  display_name: "UBW Egenmelding Export"
+  short_description: "Export company-wide egenmelding (self-certified sick leave) from UBW to CSV"
+  default_prompt: "Use $ubw-egenmelding to export the last 12 months of egenmelding for everyone in the company to CSV."

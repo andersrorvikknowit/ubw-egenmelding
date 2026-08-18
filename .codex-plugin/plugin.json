@@ -1,0 +1,33 @@
+{
+  "name": "ubw-egenmelding",
+  "version": "1.0.0",
+  "description": "Export company-wide egenmelding counts from Unit4/UBW using a connected Chrome session.",
+  "author": {
+    "name": "Anders Rorvik"
+  },
+  "repository": "https://github.com/andersrorvikknowit/ubw-egenmelding",
+  "license": "Apache-2.0",
+  "keywords": [
+    "unit4",
+    "ubw",
+    "egenmelding",
+    "chrome",
+    "csv"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "UBW Egenmelding Export",
+    "shortDescription": "Export company-wide egenmelding from UBW using connected Chrome",
+    "longDescription": "Requires a connected Chrome browser session. Uses Chrome to guide or operate Unit4/UBW, run the Timesheets approved per resource (T2) report, apply Norwegian egenmelding counting rules, and produce CSV outputs without local scripts or browser launchers.",
+    "developerName": "Anders Rorvik",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Browser"
+    ],
+    "defaultPrompt": [
+      "Export egenmelding from UBW using Chrome.",
+      "Count egenmelding for the last 52 completed weeks."
+    ]
+  }
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "UBW Egenmelding Export"
+  short_description: "Export company-wide egenmelding from UBW using connected Chrome"
+  default_prompt: "Use $ubw-egenmelding with the connected Chrome session to export the last 52 completed weeks of egenmelding for everyone in the company to CSV."

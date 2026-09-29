@@ -5,12 +5,14 @@ description: "Assist managers with counting and exporting company-wide egenmeldi
 
 # UBW Egenmelding Export
 
-**Version:** 1.1.0 — counting window is the **last 12 months through the last
-completed month**; the downloaded UBW export is located automatically in the
-user's Downloads folder when local file reading is available.
+**Version:** 1.2.0 — sykdomstilfeller are grouped by the **16-day gap** from the
+last egenmelding day (folketrygdloven §8-24), and egenmelding days are counted as
+**calendar days** from the first day of a case; counting window is the **last 12
+months through the last completed month**; the downloaded UBW export is located
+automatically in the user's Downloads folder when local file reading is available.
 
 State the skill version and the resolved counting window in your **first reply**,
-for example: `UBW Egenmelding Export v1.1.0 — window 2025-08-01 to 2026-07-31`.
+for example: `UBW Egenmelding Export v1.2.0 — window 2025-08-01 to 2026-07-31`.
 This lets the user tell which revision of the counting rules produced the numbers.
 
 Use this skill to help a **manager** count and export **company-wide
@@ -119,6 +121,12 @@ The skill maps each row to a sick day:
 `{ hrid: Hrid, employee: Resource (T), date: Item date, week: Week number, hours: Hours }`.
 Only rows with **Hours > 0** count as a sick day.
 
+`Item date` is authoritative for all counting; `Week number` is only a
+cross-check for the date format (see the parsing note under
+[Chrome Workflow](#chrome-workflow)) and can itself be stale in an export, so a
+few rows disagreeing is fine — a *systematic* disagreement means the day/month
+order is wrong.
+
 Prefer the report's export function when available because it avoids missing
 rows hidden by paging or virtualization. If exporting is not available, collect
 all visible grid rows, advance through every page, and verify that the row count
@@ -161,21 +169,46 @@ week number together; never take the year from the date string.
 
 ## Egenmelding Rules
 
-Counting sykdomstilfeller (sickness cases) and egenmelding days:
+The governing rule (folketrygdloven §8-24, exact wording):
 
-- A **sykdomstilfelle** = consecutive calendar days of sick leave.
-- Max **3 egenmelding days per sykdomstilfelle**.
-- **Weekend rule:** an egenmelding on **Friday** consumes Friday, Saturday, and
-  Sunday (3 calendar days). A following **Monday** is therefore a **new**
-  sykdomstilfelle.
-- A case may **span two week numbers** and still count as one case if the days
-  are consecutive (and not more than 3 days).
-- **16-day rule:** within any rolling **16 calendar-day** window an employee may
-  register at most **3 egenmelding days total**. If a person returns to work and
-  is sick again within 16 days, that is a new sykdomstilfelle, but the combined
-  days still cannot exceed 3.
-- **12-month quota:** max **4 sykdomstilfeller per 12 months** (the 12-month
-  window defined above). A 5th requires a **sykemelding** (medical certificate).
+> *"Etter at egenmelding er benyttet i 3 kalenderdager må arbeidet gjenopptas og
+> egenmelding kan ikke benyttes før det igjen er gått 16 kalenderdager fra siste
+> egenmeldingsdag."*
+
+This is **one rule with two clauses**, not two independent rules:
+
+- **3 calendar days per sykdomstilfelle.** Egenmelding covers at most **3
+  calendar days, counted from the first day of the case** (day 1 through day 3),
+  not 3 *registered* days. An unregistered weekend inside the span still counts.
+  So Friday (day 1) + Monday (day 4) is the **same** case and a **breach**:
+  `flag = exceeds_3_days_per_case`.
+- **16-day gap defines case boundaries.** After egenmelding is used, work must
+  resume and egenmelding cannot be used again until **16 calendar days have
+  passed since the last egenmelding day**. A new sick day therefore starts a
+  **new** sykdomstilfelle only when it is **≥ 16 days after the previous
+  egenmelding day**; a day less than 16 days later **extends the same case**
+  (which almost always pushes it past the 3-day cap):
+  `flag = exceeds_3_days_16d_window`.
+
+Consequences of the calendar-day counting:
+
+- A case may **span two week numbers** and still be one case.
+- The old "Friday consumes Fri/Sat/Sun so Monday is a new case" reading is
+  **wrong** — the 16-day gap from the last egenmelding day, not the weekday,
+  decides case boundaries. `Fri + Mon` is one case, `Sat, Sun, Mon` is one 3-day
+  case (no breach), `Fri, Mon` and `Thu, Mon` are breaches.
+
+**12-month quota:** max **4 sykdomstilfeller per 12 months** (the window defined
+above). A 5th requires a **sykemelding** (medical certificate).
+
+### Deterministic checker
+
+The two day-cap clauses are implemented and unit-tested in
+[`tools/egenmelding_rules.py`](../../tools/egenmelding_rules.py):
+`exceeds_3_days_following` (3-day cap) and `exceeds_3_days_16d_window` (16-day
+gap). Both sort and de-duplicate input defensively and return
+`(flagged, evidence)`. Run `python3 tools/egenmelding_rules.py` to confirm the
+vectors pass before relying on the counts.
 
 ## Output
 
@@ -228,8 +261,12 @@ Operate the UI through Chrome:
   Timecode `b_g1s3__filterRow_pd` = `syke`, applied **server-side** via
   `browserSearchClick(event, 'b$g1s3$browsergridheader$findBRT', true)`. This is
   what reduces the full result set to the egenmelding rows.
-- **Grid rows:** `tr[id^=b_g1s3_row]`; **Item date** is `DD.MM.YYYY` and is
-  converted to ISO. Only rows with **Hours > 0** count as sick days.
+- **Grid rows:** `tr[id^=b_g1s3_row]`; **Item date** is converted to ISO. The
+  live grid renders it as `DD.MM.YYYY`, but an exported `.xlsx`/`.csv` may carry
+  a locale-dependent format such as `M/D/YY`. Detect the format rather than
+  assuming: **validate each parsed date against its `Week number`** (ISO
+  week-numbering year + week) and, if they disagree for most rows, you have the
+  day/month order wrong. Only rows with **Hours > 0** count as sick days.
 - Filtering server-side keeps the sick-leave rows on a single grid page; if a
   company has more sick-leave rows than the page size, collect every page or use
   the report export.
@@ -245,42 +282,44 @@ Operate the UI through Chrome:
    unparseable rows separately.
 4. Deduplicate by employee/date before grouping so multiple positive-hour rows
    on the same date count as one egenmelding day.
-5. For each employee, sort sick days by date and group consecutive calendar days
-   into sickness cases.
-6. Apply weekend reach before grouping:
-   - A Friday row consumes Friday, Saturday, and Sunday. Ignore Saturday/Sunday
-     rows that fall inside that reach. A following Monday starts a new case.
-   - A Saturday row consumes Saturday and Sunday. Ignore a Sunday row that falls
-     inside that reach.
-   - Other weekdays consume only that day.
-7. Count `egenmelding_days` as the deduplicated qualifying sick-day rows, and
+5. For each employee, sort the distinct sick days and group them into
+   sickness cases by the **16-day gap**: walking the sorted dates, a day that is
+   **≥ 16 calendar days after the previous egenmelding day** starts a new case;
+   otherwise it extends the current case. Do **not** group by weekday or by
+   "consecutive" days — the 16-day gap is the only boundary.
+6. Count `egenmelding_days` as the deduplicated qualifying sick-day rows, and
    `sykdomstilfeller` as the grouped cases.
-8. Set `quota_remaining = max(0, 4 - sykdomstilfeller)`.
-9. Add flags:
+7. Set `quota_remaining = max(0, 4 - sykdomstilfeller)`.
+8. Add flags (the two day-cap flags are exactly what
+   `tools/egenmelding_rules.py` computes; use it as the reference):
    - `quota_reached` when `sykdomstilfeller = 4`.
    - `requires_sykemelding` when `sykdomstilfeller >= 5`.
-   - `exceeds_3_days_per_case` when any case has more than 3 egenmelding days.
-   - `exceeds_3_days_16d_window` when any rolling 16-calendar-day window has more
-     than 3 egenmelding days.
+   - `exceeds_3_days_per_case` when any case spans more than 3 calendar days
+     from its first day (`last - first > 2 days`), counting the weekend.
+   - `exceeds_3_days_16d_window` when an egenmelding day falls within 16 calendar
+     days of the previous one beyond the 3-day allowance (a 4th day inside the
+     reach of the last).
 
 Use these examples as checks while counting:
 
-- `2026-08-14` (Friday) plus `2026-08-17` (Monday) = 2 sickness cases, 2
-  egenmelding days.
+- `2026-08-14` (Friday) plus `2026-08-17` (Monday) = **1** sickness case
+  (Monday is only 3 days after Friday, < 16), 2 egenmelding days spanning 4
+  calendar days = `exceeds_3_days_per_case`.
+- `2026-08-15` (Sat), `2026-08-16` (Sun), `2026-08-17` (Mon) = 1 case, 3
+  egenmelding days spanning exactly 3 calendar days, **no** day-cap flag.
 - `2026-08-17`, `2026-08-18`, `2026-08-19` = 1 sickness case, 3 egenmelding
   days, no day-cap flag.
 - `2026-08-17`, `2026-08-18`, `2026-08-19`, `2026-08-20` = 1 sickness case, 4
   egenmelding days, `exceeds_3_days_per_case`.
+- Two 1-day illnesses ≥ 16 days apart = 2 separate cases, no day-cap flag.
 - Four separate sickness cases in the 12-month window = `quota_reached`; five or more =
   `requires_sykemelding`.
-- Any set of four or more egenmelding days where the first and last are less
-  than 16 calendar days apart = `exceeds_3_days_16d_window`.
 
 ## Final Review
 
 Before treating the export as final, present a compact review:
 
-- skill version (`1.1.0`)
+- skill version (`1.2.0`)
 - window: the date range (from / to) **and** the `T.per mellom` weeks actually used,
   so the reader can see the superset was filtered down
 - source file: the path and modified time of the export that was counted, or "attached

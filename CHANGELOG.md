@@ -5,6 +5,40 @@ All notable changes to the UBW Egenmelding Export plugin are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] — 2026-09-29
+
+### Changed
+
+- **Sykdomstilfelle grouping and the day cap now follow folketrygdloven §8-24
+  exactly:** *"Etter at egenmelding er benyttet i 3 kalenderdager må arbeidet
+  gjenopptas og egenmelding kan ikke benyttes før det igjen er gått 16
+  kalenderdager fra siste egenmeldingsdag."*
+  - A new sykdomstilfelle starts only when a sick day is **16 or more calendar
+    days after the previous egenmelding day**; a day less than 16 days later
+    extends the current case. Case boundaries are decided by this gap, not by
+    weekday.
+  - The 3-day cap counts **calendar days from the first day of the case**
+    (weekend included), not registered days.
+  - This **replaces the previous weekend rule** ("a Friday egenmelding consumes
+    Fri/Sat/Sun, so a following Monday is a new sykdomstilfelle"), which was
+    incorrect. Under the corrected rule `Fri + Mon` is one case and breaches the
+    3-day cap; `Sat, Sun, Mon` is one clean 3-day case.
+
+### Added
+
+- **`tools/egenmelding_rules.py`** — a standard-library deterministic checker for
+  the two day-cap clauses (`exceeds_3_days_following`,
+  `exceeds_3_days_16d_window`) plus the case-grouping helper (`group_cases`),
+  with test vectors. Run `python3 tools/egenmelding_rules.py`.
+- Date-parsing guidance: an exported `Item date` may be locale-formatted (e.g.
+  `M/D/YY`) rather than the grid's `DD.MM.YYYY`; validate the parsed date against
+  its `Week number` to detect the day/month order.
+
+### Notes
+
+- Counts may differ from 1.1.0 for employees whose sick days fall around weekends
+  or within 16 days of each other.
+
 ## [1.1.0] — 2026-08-31
 
 ### Changed

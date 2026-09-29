@@ -1,1 +1,6 @@
 .DS_Store
+.idea/
+__pycache__/
+*.pyc
+# generated egenmelding exports (may contain personnel data)
+tools/egenmelding-*.csv
